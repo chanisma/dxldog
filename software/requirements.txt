@@ -1,0 +1,6 @@
+# 로봇 소프트웨어만 (Raspberry Pi 에도 이것만 설치). CAD 도구까지는 위 폴더의 requirements.txt
+numpy
+mujoco>=3.2
+dynamixel-sdk>=4.0
+aiohttp>=3.9
+# pywebview   ← 노트북에서 스튜디오를 앱 창으로 띄울 때만 (선택)

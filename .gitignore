@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+MUJOCO_LOG.TXT
+.playwright-mcp/
+Thumbs.db
