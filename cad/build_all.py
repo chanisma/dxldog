@@ -3,6 +3,7 @@
   xl    : 12개 모두 XL430 (또는 XC430)
   xm    : 12개 모두 XM430
   mixed : 옆으로 벌리기 XL430, 앞뒤·무릎 XM430
+  sts   : 12개 모두 Feetech STS3215 (LeRobot SO-101 모터)
 """
 import sys
 import time
@@ -11,9 +12,11 @@ from pathlib import Path
 from build123d import Plane, export_step, export_stl, mirror
 
 import x430 as X
+from sts3215 import STS3215
 from dxldog_cad import Build, body_plates, fit_gauges, foot, shank, shoulder, thigh
 
-VARIANTS = {"xl": Build(), "xm": Build(X.XM430, X.XM430, X.XM430), "mixed": Build(X.XL430, X.XM430, X.XM430)}
+VARIANTS = {"xl": Build(), "xm": Build(X.XM430, X.XM430, X.XM430), "mixed": Build(X.XL430, X.XM430, X.XM430),
+            "sts": Build(STS3215, STS3215, STS3215)}
 PLA = 1.24e-3          # g/mm³
 FILL = 0.55            # 벽+채움 30 % 정도일 때 실제 질량 비율 (어림)
 

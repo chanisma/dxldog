@@ -2,7 +2,8 @@
 
 실행 (software/studio 폴더에서):
   ../../.venv/Scripts/python studio_web.py                          시뮬레이터 (앱 창으로 열림, run_studio.bat 과 같음)
-  ../../.venv/Scripts/python studio_web.py --backend real --port COM3     실물 (노트북 + U2D2)
+  ../../.venv/Scripts/python studio_web.py --backend real --port COM3     실물 (노트북 + U2D2 / URT-1 등 어댑터)
+  ../../.venv/Scripts/python studio_web.py --robot sts              로봇 종류: mixed(DYNAMIXEL) 또는 sts(STS3215)
   ../../.venv/Scripts/python studio_web.py --backend real --port fake     가짜 모터 (하드웨어 없이 연습)
   ../../.venv/Scripts/python studio_web.py --browser                기본 브라우저로 열기
   python3 studio_web.py --backend real --port /dev/ttyUSB0 --host 0.0.0.0 --no-window
@@ -86,6 +87,7 @@ def meta(backend, port):
     return {
         "samples": [{"id": sid, "name": name} for sid, name, _ in SAMPLES],
         "backend": backend, "port": port,
+        "robot": C.ROBOT, "robotName": C.ROBOT_INFO["name"], "brand": C.BRAND, "adapter": C.ADAPTER,
         "legs": C.LEGS, "legNames": C.LEG_NAMES, "joints": C.JOINTS,
         "jointInfo": {j: {"name": v[0], "meaning": v[1], "range": C.JOINT_RANGE_DEG[j]} for j, v in C.JOINT_INFO.items()},
         "poses": {k: pose_degrees(k) for k in C.POSES},
@@ -96,6 +98,7 @@ def meta(backend, port):
         "tempLimit": [TEMP_LIMIT[C.MOTOR_MODEL[j]] for _, j in keys],
         "center": C.CENTER, "radToTick": C.RAD_TO_TICK,
         "addr": {k: C.ADDR[k][0] for k in ("goal_position", "present_position", "present_temperature", "torque_enable")},
+        "addrSize": {k: C.ADDR[k][1] for k in ("goal_position", "present_position", "present_temperature", "torque_enable")},
     }
 
 
@@ -115,7 +118,7 @@ class SimBridge:
     async def start(self):
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONPATH=str(SOFTWARE))
         flags = 0x08000000 if sys.platform == "win32" else 0          # CREATE_NO_WINDOW
-        args = [sys.executable, "-u", str(HERE / "server.py"), "--backend", self.backend]
+        args = [sys.executable, "-u", str(HERE / "server.py"), "--backend", self.backend, "--robot", C.ROBOT]
         if self.port:
             args += ["--port", self.port]
         self.fatal = None
@@ -327,7 +330,8 @@ def serve(args, ready=None):
 def main():
     ap = argparse.ArgumentParser(description="DXL Dog Studio — 코드 편집기 + 3D 로봇 화면")
     ap.add_argument("--backend", choices=["sim", "real"], default="sim", help="sim(시뮬레이터, 기본) 또는 real(실물)")
-    ap.add_argument("--port", default=None, help="실물 모터 포트: COM3, /dev/ttyUSB0, fake(가짜 모터)")
+    ap.add_argument("--port", default=None, help="실물 모터 포트: COM3, /dev/ttyUSB0, /dev/ttyACM0, fake(가짜 모터)")
+    ap.add_argument("--robot", choices=list(C.ROBOTS), default=None, help=f"로봇 종류: mixed 또는 sts (기본: {C.ROBOT})")
     ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 이면 같은 네트워크의 다른 컴퓨터에서 접속 가능")
     ap.add_argument("--http-port", type=int, default=None, help="웹 서버 포트 (기본: 빈 포트 자동, --host 0.0.0.0 이면 8765)")
     ap.add_argument("--no-window", action="store_true", help="창을 열지 않고 주소만 출력 (Raspberry Pi·시험용)")
@@ -335,6 +339,8 @@ def main():
     args = ap.parse_args()
     if args.backend == "real" and not args.port:
         ap.error("실물은 --port 가 필요해요. 예: --port COM3, --port /dev/ttyUSB0, 연습용 --port fake")
+    if args.robot:
+        C.use(args.robot)                                     # 3D 모델·모터 정보·로봇 서버 모두 이 종류로
     if args.http_port is None:
         args.http_port = 8765 if args.host != "127.0.0.1" else free_port()
     url = f"http://127.0.0.1:{args.http_port}/"

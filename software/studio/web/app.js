@@ -198,6 +198,11 @@ const bb = $("backend-badge");
 bb.textContent = !isReal ? "시뮬레이터" : meta.port === "fake" ? "가짜 모터 (연습)" : `실물 · ${meta.port}`;
 bb.classList.add(!isReal ? "sim" : meta.port === "fake" ? "fake" : "real");
 $("twin-note").style.display = isReal ? "" : "none";
+// 로봇 종류 표시: DYNAMIXEL (mixed) / STS3215 (sts)
+const rb = $("robot-badge");
+rb.textContent = meta.brand;
+rb.title = `${meta.robotName} · 로봇 종류 "${meta.robot}"${isReal ? ` · ${meta.adapter}` : ""}`;
+rb.classList.add(meta.robot === "sts" ? "feetech" : "dynamixel");
 
 const temps = $("hud-temps");
 temps.innerHTML = `<span></span>${["hip_x", "hip_y", "knee"].map((j) => `<span class="th">${j}</span>`).join("")}` +

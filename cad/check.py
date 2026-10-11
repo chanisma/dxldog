@@ -1,5 +1,5 @@
 """관절 범위 전체에서 부품·모터끼리 부딪히지 않는지 검사 (겹치는 부피 > 0.5 mm³ 이면 충돌로 표시).
-실행: ../.venv/Scripts/python check.py [xl|xm|mixed]
+실행: ../.venv/Scripts/python check.py [xl|xm|mixed|sts]
 """
 import itertools
 import sys

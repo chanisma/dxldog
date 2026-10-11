@@ -2,5 +2,6 @@
 numpy
 mujoco>=3.2
 dynamixel-sdk>=4.0
+feetech-servo-sdk>=1.0      # STS3215 로봇 (모듈 이름 scservo_sdk)
 aiohttp>=3.9
 # pywebview   ← 노트북에서 스튜디오를 앱 창으로 띄울 때만 (선택)

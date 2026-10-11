@@ -1,4 +1,4 @@
-"""DXL Dog MuJoCo 시뮬레이터 — CAD 에서 뽑은 부품 모양·질량(assets/)과 모터별 최대 힘으로 만든다.
+"""DXL Dog MuJoCo 시뮬레이터 — CAD 에서 뽑은 부품 모양·질량(assets/<로봇 종류>/)과 모터별 최대 힘으로 만든다.
 
 모델 관절각 규칙은 config.py 참고 (학생 각도 = −모델 각도).
 모터 = 위치 제어(P·D) + 토크-속도 한계(정지 토크에서 무부하 속도까지 직선). 빨리 돌수록 낼 수 있는 힘이 줄어든다.
@@ -13,21 +13,40 @@ import numpy as np
 
 from . import config as C
 
-ASSETS = Path(__file__).resolve().parent / "assets"
+ASSETS_ROOT = Path(__file__).resolve().parent / "assets"           # assets/mixed, assets/sts … (cad/export_sim_assets.py 가 만듦)
 SIM_DT = 0.001
-EXTRA = {"battery": 0.15, "electronics": 0.10, "wiring": 0.10}      # kg — 3S 1300 mAh, Raspberry Pi·U2D2·허브, 케이블·나사
-KP = {"XL430-W250": 25.0, "XM430-W350": 40.0}
-KV = {"XL430-W250": 0.5, "XM430-W350": 0.8}
+EXTRA = {"battery": 0.15, "electronics": 0.10, "wiring": 0.10}      # kg — 3S 1300 mAh, Raspberry Pi·어댑터·허브, 케이블·나사
+# 위치 제어 P·D (Nm/rad, Nm·s/rad) — 모델별. ⚠️ STS3215 값은 정지 토크 비율로 고른 어림값
+KP = {"XL430-W250": 25.0, "XM430-W350": 40.0, "XM430-W210": 30.0, "XC430-W240": 25.0,
+      "STS3215-12V": 30.0, "STS3215-7.4V": 20.0}
+KV = {"XL430-W250": 0.5, "XM430-W350": 0.8, "XM430-W210": 0.6, "XC430-W240": 0.5,
+      "STS3215-12V": 0.6, "STS3215-7.4V": 0.4}
 T_AMB, HEAT_GAIN, COOL_TAU = 25.0, 0.5, 300.0
-TEMP_LIMIT = {"XL430-W250": 72.0, "XM430-W350": 80.0}             # DYNAMIXEL 기본 온도 한계 (°C)
+TEMP_LIMIT = C.TEMP_LIMIT                                          # 모터 기본 온도 한계 (°C, config.py)
+
+
+def assets_dir(robot=None):
+    """로봇 종류의 자산 폴더. 아직 없으면 (경고하고) mixed 폴더를 쓴다 → (폴더, 대신 쓰는지)."""
+    robot = robot or C.ROBOT
+    d = ASSETS_ROOT / robot
+    if (d / "frames.json").exists():
+        return d, False
+    print(f"⚠️ assets/{robot}/ 가 아직 없어서 mixed 로봇의 부품 모양을 대신 씁니다 (모터 무게·힘은 {robot} 값).")
+    return ASSETS_ROOT / "mixed", True
 
 
 def _student_to_model(deg):
     return -np.radians(deg)
 
 
-def build_model():
-    info = json.loads((ASSETS / "frames.json").read_text(encoding="utf-8"))
+def build_model(robot=None):
+    """MuJoCo 모델 만들기. robot: 로봇 종류 (None = 지금 종류, 주면 그 종류로 바꾼다)."""
+    if robot and robot != C.ROBOT:
+        C.use(robot)                                               # 모터 힘·무게도 같은 종류로 맞춘다
+    assets, fallback = assets_dir()
+    info = json.loads((assets / "frames.json").read_text(encoding="utf-8"))
+    if fallback:                                                   # 대신 쓰는 메시: 모터 무게만 이 로봇 모터로
+        info["motor_mass"] = {j: C.MOTOR_MASS[C.MOTOR_MODEL[j]] for j in C.JOINTS}
     pm = info["part_mass"]
     spec = mujoco.MjSpec()
     spec.compiler.degree = False
@@ -37,7 +56,7 @@ def build_model():
     spec.visual.headlight.diffuse = [0.7, 0.7, 0.7]
     spec.visual.headlight.ambient = [0.35, 0.35, 0.35]
     for name in ("body_top", "body_bottom", "shoulder_L", "shoulder_R", "thigh_L", "thigh_R", "shank_L", "shank_R", "foot"):
-        spec.add_mesh(name=name, file=str(ASSETS / f"{name}.stl"), scale=[1e-3] * 3)
+        spec.add_mesh(name=name, file=str(assets / f"{name}.stl"), scale=[1e-3] * 3)
     wb = spec.worldbody
     wb.add_geom(name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[5, 5, 0.1], rgba=[0.85, 0.87, 0.9, 1],
                 friction=[1.0, 0.005, 0.0001])
@@ -107,15 +126,19 @@ class DxlSim:
     """시뮬레이터 백엔드. 관절각·목표는 '모델 rad' (학생 각도 변환은 Dog 가 한다)."""
 
     kind = "sim"
+    has_imu = True                                               # 시뮬레이터는 기울기·자이로를 정확히 안다
 
-    def __init__(self):
+    def __init__(self, robot=None):
+        if robot:
+            C.use(robot)                                             # 로봇 종류 바꾸기 (모터 사양·자산 폴더)
+        self.robot = C.ROBOT
         self.model = build_model()
         self.data = mujoco.MjData(self.model)
         m = self.model
         self.qadr = np.array([m.jnt_qposadr[m.joint(f"{l}_{j}").id] for l in C.LEGS for j in C.JOINTS])
         self.dadr = np.array([m.jnt_dofadr[m.joint(f"{l}_{j}").id] for l in C.LEGS for j in C.JOINTS])
         self.stall = np.array([C.STALL_TORQUE[C.MOTOR_MODEL[j]] for _ in C.LEGS for j in C.JOINTS])
-        self.temp_limit = np.array([TEMP_LIMIT[C.MOTOR_MODEL[j]] for _ in C.LEGS for j in C.JOINTS])
+        self.temp_limit = np.array([C.TEMP_LIMIT[C.MOTOR_MODEL[j]] for _ in C.LEGS for j in C.JOINTS])
         self.w0 = np.array([C.NO_LOAD_RPM[C.MOTOR_MODEL[j]] * 2 * math.pi / 60 for _ in C.LEGS for j in C.JOINTS])
         self.kp = np.array([KP[C.MOTOR_MODEL[j]] for _ in C.LEGS for j in C.JOINTS])
         self.kv = np.array([KV[C.MOTOR_MODEL[j]] for _ in C.LEGS for j in C.JOINTS])
@@ -179,6 +202,10 @@ class DxlSim:
         return np.array([math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)),
                          math.asin(max(-1, min(1, 2 * (w * y - z * x)))),
                          math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))])
+
+    def gyro(self):
+        """몸통 회전 속도 (roll, pitch, yaw 축, rad/s) — 자이로 센서 값."""
+        return self.data.qvel[3:6].copy()                        # 자유 관절의 회전 속도는 몸통 좌표 기준
 
     def fallen(self):
         r, p, _ = self.rpy()

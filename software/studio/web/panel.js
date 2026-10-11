@@ -117,7 +117,7 @@ export class Panel {
     return { input, num, set: (v) => { input.value = v; show(v); }, readout: (html) => { extra.innerHTML = html; } };
   }
 
-  // ---------- DYNAMIXEL 변환 (dxldog.deg_to_tick 과 같은 식) ----------
+  // ---------- 모터 위치값 변환 (dxldog.deg_to_tick 과 같은 식, DYNAMIXEL·STS 같음) ----------
   tickOf(i, d) {
     const off = this.state?.offset?.[i] ?? 0;
     return Math.round(this.m.center + this.m.direction[i] * -rad(d) * this.m.radToTick + off);
@@ -408,13 +408,13 @@ export class Panel {
 
   // ---------- 코드 보기 ----------
   codeLines() {
-    const A = this.m.addr;
+    const A = this.m.addr, S = this.m.addrSize;
     if (this.tab === "joint") {
       const j = this.lastJoint, legs = this.allLegs.checked ? this.m.legs : [this.leg];
       const i0 = this.idx(legs[0], j);
       const d = Math.round(this.goal ? this.goal[i0] : +this.jsl[j].input.value);
       return [`# ${this.m.legNames[legs[0]]} 다리 '${this.m.jointInfo[j].name}' 관절을 ${d}° 로`,
-        `# DYNAMIXEL 형식: 모터 ID ${this.m.motorIds[i0]} (${this.m.motorModels[i0]}) · Goal Position(주소 ${A.goal_position}) ← ${this.tickOf(i0, d)}`,
+        `# ${this.m.brand} 형식: 모터 ID ${this.m.motorIds[i0]} (${this.m.motorModels[i0]}) · Goal Position(주소 ${A.goal_position}) ← ${this.tickOf(i0, d)}`,
         ...legs.map((l) => `dog.set_angle("${l}", "${j}", ${d})`)];
     }
     if (this.tab === "foot") {
@@ -430,7 +430,7 @@ export class Panel {
       const dr = -rad(d);
       return [`# ${this.m.legNames[leg]} ${j}: 모터 ID ${this.m.motorIds[i]} (${this.m.motorModels[i]}) · 방향 ${this.m.direction[i] > 0 ? "+1" : "−1"}`,
         `# 목표 ${d.toFixed(1)}° → 모델 각도 ${dr.toFixed(3)} rad → 위치값 2048 ${this.m.direction[i] > 0 ? "+" : "−"} ${dr.toFixed(3)} × 4096/2π = ${this.tickOf(i, d)}`,
-        `# (Goal Position 주소 ${A.goal_position}, 4바이트 · Present Position 주소 ${A.present_position} · 온도 주소 ${A.present_temperature})`,
+        `# (${this.m.brand}: Goal Position 주소 ${A.goal_position}, ${S.goal_position}바이트 · Present Position 주소 ${A.present_position} · 온도 주소 ${A.present_temperature})`,
         `print(motor_info("${leg}", "${j}"))`,
         `print(deg_to_tick("${leg}", "${j}", ${d.toFixed(1)}))`];
     }

@@ -2,7 +2,8 @@
 
 실행(보통은 studio_web.py 가 띄운다):
   python server.py                                   시뮬레이터 (실제 시간 속도)
-  python server.py --backend real --port COM3        실물 (노트북 + U2D2)
+  python server.py --backend real --port COM3        실물 (노트북 + U2D2 / URT-1 등 어댑터)
+  python server.py --robot sts ...                   로봇 종류: mixed(DYNAMIXEL) 또는 sts(STS3215). 생략하면 기본 종류
   python server.py --backend real --port /dev/ttyUSB0   실물 (Raspberry Pi)
   python server.py --backend real --port fake        가짜 모터 (하드웨어 없이 실물 코드 경로 시험)
   python server.py --fast                            시험용: 시뮬레이터를 최대 속도로
@@ -11,7 +12,7 @@ stdin  (한 줄에 JSON 하나): {"cmd": "run", "code": "..."} | {"cmd": "stop"}
        조작 패널: {"cmd": "panel", "op": "joints", "deg": [12개]} | {"op": "pose", "name": "stand"}
                  | {"op": "gait", "on": true, "T": 0.5, "step": 0.04, "lift": 0.03, "height": -0.155, "duty": 0.65, "turn": 0}
 stdout: 학생 코드의 print 출력, 그리고 EVENT_PREFIX 로 시작하는 상태 알림 줄
-        ready / fatal / run_start / run_end(ok|error|stopped) / reset_done / busy / notice
+        ready(mode, port, robot) / fatal / run_start / run_end(ok|error|stopped) / reset_done / busy / notice
         frame(30 Hz: 3D 화면용 바디 자세) / state(10 Hz: 관절각, 목표, 온도, 높이, 기울기, 모터 위치값)
 학생 코드는 별도 스레드에서 실행하고, 시간 진행(물리 계산 또는 실물 박자 맞추기)은 메인 스레드가 맡는다(dxldog/live.py 참고).
 실물 모드의 3D 화면은 '디지털 트윈': 모터에서 읽은 관절각을 시뮬레이터 모델에 넣어 모양만 그린다(물리 계산 없음).
@@ -280,13 +281,13 @@ class Server:
              target=[round(float(a), 1) for a in -np.degrees(tgt)],
              temp=[round(float(t), 1) for t in self.hw.temperature],
              tlim=[float(t) for t in self.hw.temp_limit],
-             ticks=self._ticks(tgt),                     # Goal Position (주소 116)
-             pticks=self._ticks(self.q),                 # Present Position (주소 132)
+             ticks=self._ticks(tgt),                     # Goal Position (DYNAMIXEL 주소 116, STS 42)
+             pticks=self._ticks(self.q),                 # Present Position (DYNAMIXEL 주소 132, STS 56)
              offset=[int(o) for o in getattr(self.hw, "offset", np.zeros(12))],
              rpy=[round(float(a), 1) for a in rpy],
              height=round(self._height(), 3),
              fallen=bool(self.hw.fallen()),
-             mode=self.kind, port=self.port,
+             mode=self.kind, port=self.port, robot=C.ROBOT,
              gait=self.gait is not None)
 
     # ---------- 학생 코드 실행 (작업 스레드) ----------
@@ -328,7 +329,7 @@ class Server:
     # ---------- 메인 루프: 시간 진행 + 화면 갱신 ----------
     def loop(self, max_seconds=None):
         threading.Thread(target=self._read_stdin, daemon=True).start()
-        emit("ready", mode=self.kind, port=self.port)
+        emit("ready", mode=self.kind, port=self.port, robot=C.ROBOT)
         sim = self.kind == "sim"
         wall0, sim0 = time.perf_counter(), (self.hw.data.time if sim else 0.0)
         started = time.perf_counter()
@@ -390,15 +391,18 @@ def main():
     ap = argparse.ArgumentParser(description="DXL Dog Studio 서버")
     ap.add_argument("--backend", choices=["sim", "real"], default="sim")
     ap.add_argument("--port", default=None, help="실물 포트: COM3, /dev/ttyUSB0, fake(가짜 모터)")
+    ap.add_argument("--robot", choices=list(C.ROBOTS), default=None, help=f"로봇 종류 (기본: {C.ROBOT})")
     ap.add_argument("--fast", action="store_true", help="시험용: 시뮬레이터를 최대 속도로")
     ap.add_argument("--stream", action="store_true", help="(호환용, 무시)")
     args = ap.parse_args()
     if args.backend == "real" and not args.port:
         args.port = "fake"
+    if args.robot:
+        C.use(args.robot)                                # 시뮬·실물·트윈 모두 이 로봇 종류로
     try:
         server = Server(args.backend, args.port, args.fast)
     except Exception as e:                               # 포트를 못 열거나 모터가 없음 → 알리고 대기 (재시작 반복 방지)
-        emit("fatal", text=str(e), mode=args.backend, port=args.port)
+        emit("fatal", text=str(e), mode=args.backend, port=args.port, robot=C.ROBOT)
         for line in sys.stdin:
             if '"quit"' in line:
                 break

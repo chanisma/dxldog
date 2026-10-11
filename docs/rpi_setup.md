@@ -14,7 +14,7 @@
 | Raspberry Pi 5 (4 GB 이상) 또는 Pi 4 | 윗판의 58 × 49 mm 구멍에 M2.5 스페이서로 고정 |
 | microSD 32 GB | Raspberry Pi OS (64-bit) |
 | 5 V 강압 변환기 | 12 V 입력. **Pi 5는 5 V 5 A, Pi 4는 5 V 3 A** 이상 ⚠️ 전류가 모자라면 Pi가 저전압 경고를 내고 느려진다 |
-| U2D2 | 노트북에서 쓰던 것을 그대로 Pi USB에 꽂는다 |
+| U2D2 (mixed) 또는 STS 어댑터 (sts) | 노트북에서 쓰던 것을 그대로 Pi USB에 꽂는다. STS 로봇은 Feetech URT-1 또는 Waveshare 버스 서보 어댑터 |
 
 ⚠️ Pi 전원은 모터 전원과 같은 배터리에서 나오지만, **접지(GND)는 공유되고 12 V는 절대 Pi에 바로 들어가면 안 된다.** 변환기 출력 전압을 멀티미터로 먼저 확인한다.
 
@@ -30,7 +30,8 @@ sudo apt update && sudo apt install -y python3-venv git
 scp -r software <사용자>@dxldog.local:~/dxldog        # ← 노트북에서 실행하는 경우
 cd ~/dxldog
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt            # numpy, mujoco, dynamixel-sdk, aiohttp
+.venv/bin/pip install -r requirements.txt            # numpy, mujoco, dynamixel-sdk, feetech-servo-sdk, aiohttp
+.venv/bin/python -m dxldog.tools use sts             # STS3215 로봇이면 한 번 (기본 종류 저장, 이후 --robot 생략 가능)
 ```
 - MuJoCo는 Pi(64-bit)에서도 설치된다. 실물을 움직일 때는 스튜디오 3D 화면(디지털 트윈)에만 쓴다.
 
@@ -43,8 +44,12 @@ sudo reboot
 ```
 다시 접속해서 `cat /sys/bus/usb-serial/devices/ttyUSB0/latency_timer` 가 `1`이면 된다.
 
+**STS 어댑터 (sts 로봇)**: 권한은 위와 같이 `dialout` 그룹이면 된다. 포트 이름은 어댑터의 USB 칩에 따라 다르다 —
+`ls /dev/ttyACM* /dev/ttyUSB*` 로 꽂기 전·후를 비교한다 (Waveshare 어댑터는 보통 `/dev/ttyACM0`, ⚠️ 칩에 따라 `/dev/ttyUSB0`).
+위의 FTDI 지연 규칙은 U2D2(FTDI 칩)용이라 STS 어댑터(CH340/CH343 계열 ⚠️)에는 해당하지 않는다. 아래 명령의 `/dev/ttyUSB0` 을 그 이름으로 바꿔 쓴다.
+
 ## 5. 확인과 영점 보정
-보정값은 **로봇을 움직이는 컴퓨터**의 `~/.dxldog/calibration.json`에 저장된다. 노트북에서 보정했다면 그 파일을 Pi의 같은 위치로 복사하거나, Pi에서 다시 보정한다.
+보정값은 **로봇을 움직이는 컴퓨터**의 `~/.dxldog/calibration.json`(sts 로봇은 `calibration_sts.json`)에 저장된다. 노트북에서 보정했다면 그 파일을 Pi의 같은 위치로 복사하거나, Pi에서 다시 보정한다.
 ```bash
 cd ~/dxldog
 .venv/bin/python -m dxldog.tools scan --port /dev/ttyUSB0

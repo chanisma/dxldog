@@ -245,6 +245,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); }
 /* ---------- 모드 표시 ---------- */
 .pill.bad i { background: var(--danger); box-shadow: 0 0 0 3px rgba(248, 113, 113, .18); }
 .badge.mode { font-weight: 600; }
+.badge.robot { font-weight: 600; letter-spacing: .02em; }
+.badge.robot.feetech { color: #c4b5fd; border-color: rgba(167, 139, 250, .45); }
+.badge.robot.dynamixel { color: #7dd3fc; border-color: rgba(56, 189, 248, .45); }
 .badge.mode.sim { color: var(--accent-2); border-color: rgba(76, 141, 255, .45); }
 .badge.mode.fake { color: var(--warn); border-color: rgba(251, 191, 36, .45); }
 .badge.mode.real { color: #fff; background: rgba(52, 160, 110, .85); border-color: transparent; }

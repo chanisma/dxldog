@@ -2,9 +2,10 @@
 
     from dxldog import Dog
     dog = Dog()                          # 시뮬레이터 (화면 창이 뜸)
-    dog = Dog("real", port="COM3")       # 노트북 + U2D2 로 실물
+    dog = Dog("real", port="COM3")       # 노트북 + 어댑터(U2D2 / URT-1 등) 로 실물
     dog = Dog("real", port="/dev/ttyUSB0")   # Raspberry Pi 위에서 실물
     dog = Dog("real", port="fake")       # 하드웨어 없이 실물 코드 경로 시험 (가짜 모터)
+    dog = Dog(robot="sts")               # 로봇 종류 고르기: "mixed"(DYNAMIXEL) 또는 "sts"(STS3215). 생략하면 기본 종류
 
 함수 이름·각도 규칙은 robotdog 의 JointDog(Lite3) 와 같다 → Lite3 에서 배운 코드를 거의 그대로 쓸 수 있다.
 """
@@ -29,13 +30,13 @@ def _index(leg, joint):
 
 
 def motor_info(leg, joint):
-    """학생용 이름 → 모터 ID 와 모델. 예: ("FL", "knee") → (3, "XM430-W350")"""
+    """학생용 이름 → 모터 ID 와 모델. 예: ("FL", "knee") → (3, "XM430-W350"), STS 로봇은 (3, "STS3215-12V")"""
     _index(leg, joint)
     return C.MOTOR_IDS[(leg, joint)], C.MOTOR_MODEL[joint]
 
 
 def deg_to_tick(leg, joint, deg, offset=0):
-    """학생 각도(도) → 모터에 보내는 Goal Position 값(0~4095, 가운데 2048)."""
+    """학생 각도(도) → 모터에 보내는 Goal Position 값(0~4095, 가운데 2048). DYNAMIXEL·STS 같은 식."""
     _index(leg, joint)
     return int(round(C.CENTER + C.DIRECTION[(leg, joint)] * -np.radians(deg) * C.RAD_TO_TICK + offset))
 
@@ -86,16 +87,23 @@ def trot_feet(t, T=0.5, step=0.04, lift=0.03, height=-0.155, x_offset=FOOT_X, du
 
 
 class Dog:
-    def __init__(self, mode="sim", port=None, viewer=True):
+    def __init__(self, mode="sim", port=None, viewer=True, robot=None):
         if mode not in ("sim", "real"):
             raise ValueError('mode 는 "sim"(시뮬레이터) 또는 "real"(실물) 이에요')
         self.viewer = None
         self._live = live.CONTEXT
         if self._live:                                   # 스튜디오에 이미 켜진 시뮬/실물에 연결
+            if robot and robot != C.ROBOT:
+                print(f"(스튜디오에 켜진 로봇 종류 '{C.ROBOT}' 을 그대로 씁니다)")
             self.hw = self._live.backend
+            self.robot = C.ROBOT
             self.mode = self.hw.kind
             self._warned = False
+            self._bal = None
             return
+        if robot:
+            C.use(robot)                                 # 로봇 종류: "mixed" 또는 "sts"
+        self.robot = C.ROBOT
         self.mode = mode
         if mode == "sim":
             from .sim import DxlSim
@@ -107,12 +115,13 @@ class Dog:
                 atexit.register(self._keep_open)
         else:
             if port is None:
-                raise ValueError('실물은 port 가 필요해요. 예: Dog("real", port="COM3") 또는 port="/dev/ttyUSB0"')
+                raise ValueError(f'실물은 port 가 필요해요. 예: Dog("real", port="COM3") ({C.ROBOT_INFO["ports"]})')
             from .real import DxlReal
             self.hw = DxlReal(port)
             atexit.register(self._goodbye)
-            print(f"모터 12개 연결 완료 ({port}). 토크 켜짐 — 지금 자세를 유지합니다.")
+            print(f"{C.BRAND} 모터 12개 연결 완료 ({port}). 토크 켜짐 — 지금 자세를 유지합니다.")
         self._warned = False
+        self._bal = None                                  # 균형 잡기 (gain, damping) — set_balance 참고
         self._wall_start, self._sim_time = time.perf_counter(), 0.0
         self._hold(0.3)
 
@@ -167,7 +176,10 @@ class Dog:
         return forward_kinematics(hy, kn)
 
     def set_feet(self, feet, seconds=0.5):
-        """발끝 위치 {다리: (x, z)} 로 이동 — 역기구학. seconds=0 이면 즉시."""
+        """발끝 위치 {다리: (x, z)} 로 이동 — 역기구학. seconds=0 이면 즉시.
+        set_balance 를 켜 두면 seconds=0 일 때 기울기 센서로 발 높이를 고쳐서 보낸다."""
+        if self._bal and seconds <= 0:
+            feet = self._balanced(feet)
         q = self._targets().reshape(4, 3)
         pose = {}
         for k, leg in enumerate(C.LEGS):
@@ -181,6 +193,38 @@ class Dog:
         if self.mode == "sim":
             return float(self.hw.base_pos[2])
         return float(np.mean([-self.get_foot(leg)[1] for leg in C.LEGS]) + 0.012)
+
+    def set_balance(self, on=True, gain=0.6, damping=0.007):
+        """균형 잡기 켜기/끄기. 켜면 set_feet(..., seconds=0) 로 보내는 발 높이를 센서로 고친다:
+        몸이 기운 쪽 다리는 늘이고 반대쪽은 줄인다.
+          고치는 양 [cm] = gain × 기울기[°] + damping × 기우는 속도[°/s]
+        (J6 예제가 같은 계산을 직접 해 본다.) 실물은 IMU 를 달아야 쓸 수 있다."""
+        if on and not self.hw.has_imu:
+            raise RuntimeError("균형 잡기에는 기울기 센서(IMU)가 필요해요. 지금 실물에는 센서가 없어요.")
+        self._bal = (float(gain), float(damping)) if on else None
+
+    @property
+    def has_imu(self):
+        """기울기 센서(IMU)가 있으면 True. 시뮬레이터는 항상 True."""
+        return bool(self.hw.has_imu)
+
+    def get_gyro(self):
+        """(roll, pitch, yaw) 방향으로 몸이 도는 속도 [°/s] — 자이로 센서. 실물은 IMU 를 달기 전까지 (0, 0, 0)."""
+        return tuple(float(v) for v in np.degrees(self.hw.gyro()))
+
+    def _balanced(self, feet):
+        gain, damping = self._bal
+        roll, pitch = self.get_tilt()
+        roll_rate, pitch_rate, _ = self.get_gyro()
+        fix_pitch = (gain * pitch + damping * pitch_rate) / 100      # cm → m
+        fix_roll = (gain * roll + damping * roll_rate) / 100
+        fix_pitch, fix_roll = np.clip([fix_pitch, fix_roll], -0.03, 0.03)    # 한 번에 3 cm 까지만 (다리가 닿는 범위 안)
+        out = {}
+        for leg, (x, z) in feet.items():
+            front = 1 if leg[0] == "F" else -1                       # 앞다리 +1, 뒷다리 −1
+            left = 1 if leg[1] == "L" else -1                        # 왼다리 +1, 오른다리 −1
+            out[leg] = (x, z - front * fix_pitch + left * fix_roll)  # 앞이 숙여지면(pitch +) 앞다리를 늘임, 왼쪽이 들리면(roll +) 왼다리를 줄임
+        return out
 
     def get_tilt(self):
         """(옆 기울기 roll, 앞뒤 기울기 pitch) [도]. 실물은 IMU 를 달기 전까지 (0, 0)."""

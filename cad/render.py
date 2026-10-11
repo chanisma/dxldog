@@ -1,5 +1,5 @@
 """조립 미리보기: 네 다리를 자세에 맞게 놓고 MuJoCo 로 그려 PNG 로 저장한다.
-실행: ../.venv/Scripts/python render.py [xl|xm|mixed] [stand|rest|zero]
+실행: ../.venv/Scripts/python render.py [xl|xm|mixed|sts] [stand|rest|zero]
 """
 import sys
 import tempfile
@@ -14,7 +14,7 @@ from build_all import VARIANTS
 from dxldog_cad import HIP_X, body_plates, leg_parts, pose_leg
 
 POSES = {   # (옆 벌리기°, 허벅지°, 무릎 굽힘°)  — 허벅지: 아래에서 앞쪽 +, 무릎: 앞쪽으로 굽힘 +
-    "stand": (0, -55.8, 99.0),       # 몸 높이 15.5 cm (SpotMicro 기본 서기)
+    "stand": (0, -67.1, 96.6),       # 몸 높이 15.5 cm, 발은 엉덩이보다 3.5 cm 뒤 (software config.POSES 와 같음)
     "rest": (0, -69.0, 120.0),       # 쉬는 자세 (몸 높이 약 12 cm)
     "zero": (0, 0, 0),               # 설계 자세 (다리 똑바로)
 }
