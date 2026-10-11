@@ -104,12 +104,13 @@ def housing(m: X.Motor, mp: Plane, ym_from=-2.0):
     """모터 몸통의 폭 면 두 장 + 먼 끝 판 (+ 앞·뒤 면 장착판). 구멍은 모터 종류에 따라."""
     x_in = m.HALF_W + X.CLEAR / 2
     y_far = m.FAR + X.CLEAR / 2
+    band = m.D + (X.CLEAR if (m.top_holes or m.bot_holes) else 0.0)          # 면 장착판이 있으면 판과 닿도록 틈까지 (0.15 mm 떠 있던 문제)
     parts = []
     for s in (1, -1):
         x0, x1 = sorted((s * x_in, s * (x_in + T_PLATE)))
         parts.append(mp * Pos((x0 + x1) / 2, (ym_from + y_far + T_PLATE) / 2, m.zc)
-                     * Box(x1 - x0, y_far + T_PLATE - ym_from, m.D))
-    parts.append(mp * Pos(0, y_far + T_PLATE / 2, m.zc) * Box(2 * (x_in + T_PLATE), T_PLATE, m.D))
+                     * Box(x1 - x0, y_far + T_PLATE - ym_from, band))
+    parts.append(mp * Pos(0, y_far + T_PLATE / 2, m.zc) * Box(2 * (x_in + T_PLATE), T_PLATE, band))
     body = parts[0] + parts[1] + parts[2]
     zt, zb = m.z_top + X.CLEAR / 2, m.z_bot - X.CLEAR / 2
     if m.top_holes or m.bot_holes:                                             # 앞·뒤 면 장착판 (먼 쪽만: 포크 팔·커넥터를 피함)
@@ -216,13 +217,13 @@ def hipx_walls(m: X.Motor, z_in):
     모터 먼 끝이 몸 가운데(−y)를 향하므로 벽은 y = 39 − Ym 쪽에 선다. 나사는 바깥(±x)에서 넣는다."""
     walls = None
     y_lo, y_hi = HIP_Y - (m.FAR + X.CLEAR / 2 + T_PLATE), HIP_Y - m.face_tab_from
-    for sx in (1, -1):
+    for shift in (0.0, -2 * HIP_X):                                          # 뒷다리 모터는 앞 모터를 그대로 뒤로 옮긴 것 (거울 아님)
         for sy in (1, -1):
             for holes, z_face, sgn in ((m.top_holes, m.z_top + X.CLEAR / 2, 1), (m.bot_holes, m.z_bot - X.CLEAR / 2, -1)):
                 xa = HIP_X + z_face if sgn > 0 else HIP_X + z_face - T_PLATE
-                wall = Pos(sx * (xa + T_PLATE / 2), sy * (y_lo + y_hi) / 2, 0) * Box(T_PLATE, y_hi - y_lo, 2 * z_in)
+                wall = Pos(shift + xa + T_PLATE / 2, sy * (y_lo + y_hi) / 2, 0) * Box(T_PLATE, y_hi - y_lo, 2 * z_in)
                 for (xm, ym) in holes:                                       # 모터 X = 세계 z, 모터 Y → 세계 y = 39 − Y
-                    pl = Plane(origin=(sx * (HIP_X + z_face), sy * (HIP_Y - ym), xm), x_dir=(0, 1, 0), z_dir=(sx * sgn, 0, 0))
+                    pl = Plane(origin=(shift + HIP_X + z_face, sy * (HIP_Y - ym), xm), x_dir=(0, 1, 0), z_dir=(sgn, 0, 0))
                     wall -= pl * Pos(0, 0, -6) * Cylinder(m.case_hole / 2, 12 + T_PLATE, align=MIN3)
                     wall -= pl * Pos(0, 0, T_PLATE - 1.2) * Cylinder(m.case_head / 2, 4, align=MIN3)
                 walls = wall if walls is None else walls + wall

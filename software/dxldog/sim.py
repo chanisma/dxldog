@@ -1,4 +1,5 @@
 """DXL Dog MuJoCo 시뮬레이터 — CAD 에서 뽑은 부품 모양·질량(assets/<로봇 종류>/)과 모터별 최대 힘으로 만든다.
+자산이 v2(Spot 모양, frames.json "style")이면 덮개 메시와 Spot 색을 쓴다. v1 자산도 그대로 읽는다.
 
 모델 관절각 규칙은 config.py 참고 (학생 각도 = −모델 각도).
 모터 = 위치 제어(P·D) + 토크-속도 한계(정지 토크에서 무부하 속도까지 직선). 빨리 돌수록 낼 수 있는 힘이 줄어든다.
@@ -55,7 +56,8 @@ def build_model(robot=None):
     spec.visual.global_.offwidth, spec.visual.global_.offheight = 1280, 960
     spec.visual.headlight.diffuse = [0.7, 0.7, 0.7]
     spec.visual.headlight.ambient = [0.35, 0.35, 0.35]
-    for name in ("body_top", "body_bottom", "shoulder_L", "shoulder_R", "thigh_L", "thigh_R", "shank_L", "shank_R", "foot"):
+    covers = [n for n in ("cover", "cover_dark") if n in pm and (assets / f"{n}.stl").exists()]
+    for name in ("body_top", "body_bottom", "shoulder_L", "shoulder_R", "thigh_L", "thigh_R", "shank_L", "shank_R", "foot", *covers):
         spec.add_mesh(name=name, file=str(assets / f"{name}.stl"), scale=[1e-3] * 3)
     wb = spec.worldbody
     wb.add_geom(name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[5, 5, 0.1], rgba=[0.85, 0.87, 0.9, 1],
@@ -64,9 +66,18 @@ def build_model(robot=None):
     torso.add_freejoint(name="root")
     torso.add_site(name="imu")
     orange, white, dark = [0.96, 0.62, 0.16, 1], [0.93, 0.93, 0.95, 1], [0.16, 0.17, 0.19, 1]
+    if info.get("style") == "v2":                                  # Spot 색: 노랑 덮개·허벅지, 짙은 회색 어깨, 검은 정강이
+        yellow, black = [0.97, 0.75, 0.08, 1], [0.08, 0.08, 0.09, 1]
+        col = {"body": [0.55, 0.56, 0.58, 1], "shoulder": [0.24, 0.25, 0.27, 1], "thigh": yellow, "shank": [0.11, 0.11, 0.12, 1],
+               "cover": yellow, "cover_dark": black}
+    else:
+        col = {"body": white, "shoulder": orange, "thigh": orange, "shank": orange}
     for name in ("body_top", "body_bottom"):
-        torso.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=name, mass=pm[name], rgba=white, contype=0, conaffinity=0)
-    torso.add_geom(name="body_collision", type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.111, 0.048, 0.0174], group=3, mass=0.0001)
+        torso.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=name, mass=pm[name], rgba=col["body"], contype=0, conaffinity=0)
+    for name in covers:
+        torso.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=name, mass=pm[name], rgba=col[name], contype=0, conaffinity=0)
+    box = info.get("body_box", {"center": [0, 0, 0], "half": [0.111, 0.048, 0.0174]})
+    torso.add_geom(name="body_collision", type=mujoco.mjtGeom.mjGEOM_BOX, size=box["half"], pos=box["center"], group=3, mass=0.0001)
     torso.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.037, 0.017, 0.010], mass=EXTRA["battery"], rgba=[0.2, 0.3, 0.8, 1],
                    contype=0, conaffinity=0)
     torso.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.043, 0.030, 0.010], pos=[0, 0, 0.028], mass=EXTRA["electronics"],
@@ -97,17 +108,17 @@ def build_model(robot=None):
         sh = torso.add_body(name=f"{leg}_shoulder", pos=list(p_hx + shift))
         sh.add_joint(name=f"{leg}_hip_x", axis=[1, 0, 0], range=list(rng["hip_x"]), damping=0.05, armature=0.01)
         sh.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=f"shoulder_{side}", pos=list(-p_hx), mass=pm[f"shoulder_{side}"],
-                    rgba=orange, contype=0, conaffinity=0)
+                    rgba=col["shoulder"], contype=0, conaffinity=0)
         motor_box(sh, "hip_y", side, p_hx)
         th = sh.add_body(name=f"{leg}_thigh", pos=list(p_hy - p_hx))
         th.add_joint(name=f"{leg}_hip_y", axis=[0, 1, 0], range=list(rng["hip_y"]), damping=0.05, armature=0.01)
         th.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=f"thigh_{side}", pos=list(-p_hy), mass=pm[f"thigh_{side}"],
-                    rgba=orange, contype=0, conaffinity=0)
+                    rgba=col["thigh"], contype=0, conaffinity=0)
         motor_box(th, "knee", side, p_hy)
         sk = th.add_body(name=f"{leg}_shank", pos=list(p_kn - p_hy))
         sk.add_joint(name=f"{leg}_knee", axis=[0, 1, 0], range=list(rng["knee"]), damping=0.05, armature=0.01)
         sk.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname=f"shank_{side}", pos=list(-p_kn), mass=pm[f"shank_{side}"],
-                    rgba=orange, contype=0, conaffinity=0)
+                    rgba=col["shank"], contype=0, conaffinity=0)
         foot_shift = np.array([0, 0 if side == "L" else -2 * hy0[1], 0])     # 발 메시는 왼쪽 좌표 → 오른쪽은 y 로 옮김
         sk.add_geom(type=mujoco.mjtGeom.mjGEOM_MESH, meshname="foot", pos=list(-p_kn + foot_shift), mass=pm["foot"],
                     rgba=[0.1, 0.1, 0.1, 1], contype=0, conaffinity=0)
