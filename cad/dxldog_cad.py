@@ -14,7 +14,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from build123d import (Align, Box, Cylinder, Location, Plane, Polygon, Pos, Solid, Compound, extrude)
+from build123d import (Align, Axis, Box, Cylinder, Location, Plane, Polygon, Pos, Solid, Compound, extrude)
 
 import x430 as X
 
@@ -221,7 +221,8 @@ def hipx_walls(m: X.Motor, z_in):
         for sy in (1, -1):
             for holes, z_face, sgn in ((m.top_holes, m.z_top + X.CLEAR / 2, 1), (m.bot_holes, m.z_bot - X.CLEAR / 2, -1)):
                 xa = HIP_X + z_face if sgn > 0 else HIP_X + z_face - T_PLATE
-                wall = Pos(shift + xa + T_PLATE / 2, sy * (y_lo + y_hi) / 2, 0) * Box(T_PLATE, y_hi - y_lo, 2 * z_in)
+                # 아래로 판 두께만큼 더 내려 판과 겹친다: 바깥쪽 벽은 판 끝(x_end)에 0.15–0.85 mm 만 걸쳐 있던 문제
+                wall = Pos(shift + xa + T_PLATE / 2, sy * (y_lo + y_hi) / 2, -T_PLATE / 2) * Box(T_PLATE, y_hi - y_lo, 2 * z_in + T_PLATE)
                 for (xm, ym) in holes:                                       # 모터 X = 세계 z, 모터 Y → 세계 y = 39 − Y
                     pl = Plane(origin=(shift + HIP_X + z_face, sy * (HIP_Y - ym), xm), x_dir=(0, 1, 0), z_dir=(sgn, 0, 0))
                     wall -= pl * Pos(0, 0, -6) * Cylinder(m.case_hole / 2, 12 + T_PLATE, align=MIN3)
@@ -299,12 +300,32 @@ def foot(b: Build):
 
 
 # ---------- 맞춤 시험 부품 (큰 부품을 뽑기 전에 먼저 인쇄) ----------
+SCREW_STEPS = (-0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2)   # 설계값(m.horn_hole) 기준 구멍 지름 차이
+
+
+def screw_gauge(m: X.Motor, t=4.0):
+    """혼 나사 구멍 크기 시험판: 왼쪽부터 지름 horn_hole−0.4 … +0.2 (0.1 mm 간격), 설계값 구멍 위에 홈 표시.
+    두께 t 는 포크 팔과 같고, 위쪽에 머리 자리(지름 horn_head, 깊이 1.5)가 있다. 나사가 손으로 끝까지 들어가는
+    가장 작은 구멍을 골라 그 지름을 모터 파일의 horn_hole 에 적는다."""
+    pitch = m.horn_head + 3.0
+    n = len(SCREW_STEPS)
+    g = Box(pitch * n, pitch + 2, t, align=(Align.MIN, Align.CENTER, Align.MIN))
+    for i, dd in enumerate(SCREW_STEPS):
+        x = pitch * (i + 0.5)
+        g -= Pos(x, 0, -1) * Cylinder((m.horn_hole + dd) / 2, t + 2, align=MIN3)
+        g -= Pos(x, 0, t - 1.5) * Cylinder(m.horn_head / 2, 2.0, align=MIN3)
+        if dd == 0.0:                                                          # 설계값 표시 홈
+            g -= Pos(x, (pitch + 2) / 2, t - 1.0) * Box(1.2, 2.4, 2.0)
+    g -= Pos(0, -(pitch + 2) / 2, 0) * Box(3.0, 3.0, 2 * t + 2).rotate(Axis.Z, 45)   # 가장 작은 구멍 쪽 모서리 깎기
+    return g
+
+
 def fit_gauges(b: Build):
     m = b.knee
     pl = Plane.XY
     horn = fork_arm(pl, m, (0, 0), (1, 0), 0, 3, 1)                            # 혼 구멍 + 가운데 구멍
     case_ring = (Box(m.W + 2 * X.CLEAR + 6, m.L + 2 * X.CLEAR + 6, 8) - Box(m.W + 2 * X.CLEAR, m.L + 2 * X.CLEAR, 10))
-    out = {"gauge_horn": horn, "gauge_case_ring": case_ring}
+    out = {"gauge_horn": horn, "gauge_case_ring": case_ring, "gauge_horn_screw": screw_gauge(m)}
     if m.side_holes:
         side = Box(m.L, m.D, 2.5, align=(Align.MIN, Align.CENTER, Align.MIN))   # 폭 면 구멍 위치 확인판 (Y, Z)
         side = Pos(-m.NEAR, 0, 0) * side

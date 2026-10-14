@@ -278,6 +278,7 @@ def shoulder(b: Build):
     pod = (block + housing(mh, mp_hy, ym_from=zl) + upper) & env
     part = idler + crossbar + front + pod
     part -= motor_keepout(mh, mp_hy)
+    part -= mp_hy * Pos(0, -mh.NEAR - 5, mh.zc) * Box(mh.W + 2 * X.CLEAR, 10, mh.D + 2 * X.CLEAR)   # 모터를 넣는 가까운 끝 입구 (STS 는 NEAR 가 짧아 zl 아래 0.65 mm 막이 남던 문제)
     part -= motor_keepout(m, mp_hx)
     part -= slab_y(sweep2d((hy[0], hy[2]), mh.arm_r, NECK, WL, -98, 23, 1.5), ti0 - 1, ti1 + 1)   # 허벅지 안쪽 팔이 도는 자리
     if mh.top_holes:
